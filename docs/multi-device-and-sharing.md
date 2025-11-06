@@ -73,10 +73,17 @@ const team = createTeam('My Personal Workspace', {
   device: laptop
 })
 
-// Save the team graph and user info
+// Extract the team keyring (you created it, so you have it)
+const teamKeyring = team.teamKeyring()
+
+// Save everything
 localStorage.setItem('team', team.save())
 localStorage.setItem('user', JSON.stringify(user))
+localStorage.setItem('device', JSON.stringify(laptop))
+localStorage.setItem('teamKeyring', JSON.stringify(teamKeyring))
 ```
+
+**Important:** As the founding member, you have full access to the team keys. The `team.teamKeyring()` method returns all generations of the team keys (including secrets) that you can access. You need to save this to reload the team later.
 
 ### Step 2: Invite Your Second Device
 
@@ -133,9 +140,10 @@ const connection = new Connection({
 
 // Listen for successful join
 connection.on('joined', ({ team, user, teamKeyring }) => {
-  // Save everything
+  // Save everything - including the device!
   localStorage.setItem('team', team.save())
   localStorage.setItem('user', JSON.stringify(user))
+  localStorage.setItem('device', JSON.stringify(desktop))
   localStorage.setItem('teamKeyring', JSON.stringify(teamKeyring))
   
   // Now you can use the team!
@@ -161,10 +169,51 @@ connection.on('joined', ({ team, user, userKeyring }) => {
   
   // Save updated team with your device added
   localStorage.setItem('team', team.save())
+  localStorage.setItem('user', JSON.stringify(user))
+  localStorage.setItem('device', JSON.stringify(desktop))
 })
 ```
 
-### Step 5: Add More Devices
+### Step 5: Loading Saved Team on Restart
+
+When your app restarts, load the saved data:
+
+```js
+import { Team } from '@localfirst/auth'
+
+// Load saved data
+const teamGraph = localStorage.getItem('team')
+const user = JSON.parse(localStorage.getItem('user'))
+const device = JSON.parse(localStorage.getItem('device'))
+const teamKeyring = JSON.parse(localStorage.getItem('teamKeyring'))
+
+// Restore the team
+const team = new Team({
+  source: teamGraph,
+  teamKeyring,
+  context: { user, device }
+})
+
+// You can now use the team as before
+console.log('Team restored:', team.teamName)
+console.log('My user:', user.userName)
+console.log('This device:', device.deviceName)
+```
+
+**Important:**
+
+- The device object contains secret keys, so store it securely (encrypted storage, secure keychain, etc.).
+- When the team graph changes, always save the updated graph:
+
+  ```js
+  team.on('updated', ({ head }) => {
+    localStorage.setItem('team', team.save())
+    // Update teamKeyring if keys were rotated
+    localStorage.setItem('teamKeyring', JSON.stringify(team.teamKeyring()))
+  })
+  ```
+
+### Step 6: Add More Devices
 
 Repeat steps 2-4 for each additional device (phone, tablet, etc.).
 
@@ -326,6 +375,13 @@ const user = createUser('pol')
 const laptop = createDevice({ userId: user.userId, deviceName: 'laptop' })
 const team = createTeam('Personal Workspace', { user, device: laptop })
 
+// Save on first device
+const teamKeyring = team.teamKeyring()
+localStorage.setItem('team', team.save())
+localStorage.setItem('user', JSON.stringify(user))
+localStorage.setItem('device', JSON.stringify(laptop))
+localStorage.setItem('teamKeyring', JSON.stringify(teamKeyring))
+
 // Organize with roles
 team.addRole('work')
 team.addRole('personal')
@@ -457,15 +513,25 @@ const user = createUser('pol', seed)
 
 ## Security Considerations
 
-1. **Device Keys Never Leave the Device**: Each device has its own keys that authenticate it. These should never be transferred.
+1. **Device Keys Must Be Stored Securely**: Each device's keys (including secret keys) must be stored securely on that device:
+   - Use encrypted storage (e.g., Web Crypto API with a user password)
+   - Use OS-level keychains (macOS Keychain, Windows Credential Manager)
+   - Never transmit device keys to other devices or servers
+   - The device keys authenticate this specific device
 
-2. **User Keys Are Shared**: Your user keys are shared across your devices via encrypted lockboxes. This is by design.
+2. **User Keys Are Shared**: Your user keys are shared across your devices via encrypted lockboxes. This is by design and allows all your devices to decrypt content.
 
 3. **Key Rotation on Device Removal**: When you remove a device, all keys it had access to are rotated. The removed device cannot decrypt new content.
 
-4. **Invitation Seeds Are Sensitive**: Treat invitation seeds like passwords. Use secure channels to transfer them.
+4. **Invitation Seeds Are Sensitive**: Treat invitation seeds like passwords. Use secure channels to transfer them between devices.
 
 5. **Connection Security**: The connection protocol establishes a session key for each connection, providing forward secrecy.
+
+6. **What to Store Securely**:
+   - ✅ Device keys (most sensitive - unique to this device)
+   - ✅ User keys (sensitive - your identity)
+   - ✅ Team keyring (sensitive - access to team content)
+   - ℹ️ Team graph (public information, but should be persisted)
 
 ## Common Questions
 
@@ -484,10 +550,12 @@ A: There's no hard limit, but each device adds some overhead to key rotation. Do
 **Q: Can a device be in multiple teams?**  
 A: Yes! A device can be used to access multiple teams. Each team is independent.
 
+**Q: Where does the teamKeyring come from on the first device?**  
+A: When you create a team, you're the founding member and have access to the team keys. Call `team.teamKeyring()` to get all generations of team keys (including secrets) that you can access. Save this along with the team graph, user, and device.
+
 ## See Also
 
 - [Team API Documentation](./team.md)
 - [Connection Protocol](./connection.md)
 - [Invitation System](./invitations.md)
 - [Lockboxes and Key Distribution](./lockbox.md)
-
